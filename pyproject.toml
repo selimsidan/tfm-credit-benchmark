@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tfmbench"
+version = "0.1.0"
+description = "Credit default benchmark for TabPFN, LightGBM, and RealMLP"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Selim Sidan"}]
+dependencies = [
+  "huggingface_hub==1.33.0",
+  "numpy==2.2.6",
+  "pandas==2.3.3",
+  "psutil==7.2.2",
+  "pyarrow==25.0.1",
+  "scikit-learn==1.7.2",
+  "tabulate==0.9.0",
+]
+
+[project.optional-dependencies]
+benchmark = [
+  "lightgbm==4.7.0",
+  "matplotlib==3.10.8",
+  "optuna==4.9.0",
+  "pytabkit==1.8.0",
+  "tabpfn==9.2.0",
+]
+test = ["pytest==9.1.1"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
