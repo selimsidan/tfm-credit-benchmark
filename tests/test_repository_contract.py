@@ -71,6 +71,8 @@ def test_all_six_notebooks_are_valid_thin_colab_workflows():
         assert "FORCE_REBUILD_SPLIT=False" in source
         assert "FORCE_RERUN=False" in source
         assert "RUN_TESTS=True" in source
+        assert "src_path=str(repo/'src')" in source
+        assert "tfmbench package:" in source
         assert all(cell.get("outputs", []) == [] for cell in notebook["cells"] if cell["cell_type"] == "code")
         for index, cell in enumerate(notebook["cells"]):
             if cell["cell_type"] == "code":
