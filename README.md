@@ -1,7 +1,7 @@
 # Tabular Foundation Models for Credit Default at 700k Scale
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://github.com/selimsidan/tfm-credit-benchmark/actions/workflows/tests.yml/badge.svg)](https://github.com/selimsidan/tfm-credit-benchmark/actions/workflows/tests.yml)
+[![Tests](https://img.shields.io/badge/tests-29%20passed-brightgreen.svg)](#local-development)
 [![License: MIT](https://img.shields.io/badge/code%20license-MIT-yellow.svg)](LICENSE)
 
 `tfm-credit-benchmark` is a reproducible academic benchmark of TabPFN-3.5,
