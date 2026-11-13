@@ -1,7 +1,7 @@
 # Tabular Foundation Models for Credit Default at 700k Scale
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-pytest-green.svg)](#local-development)
+[![Tests](https://github.com/selimsidan/tfm-credit-benchmark/actions/workflows/tests.yml/badge.svg)](https://github.com/selimsidan/tfm-credit-benchmark/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/code%20license-MIT-yellow.svg)](LICENSE)
 
 `tfm-credit-benchmark` is a reproducible academic benchmark of TabPFN-3.5,
@@ -114,12 +114,12 @@ Run the notebooks in this order:
 
 | Step | Notebook | Recommended runtime | Purpose |
 |---:|---|---|---|
-| 0 | `00_prepare_data.ipynb` | CPU High-RAM | Download, clean, cache, split, and check leakage |
-| 1 | `01_pilot.ipynb` | A100 40 GB with High-RAM | Run 50k, 100k, and 200k pilots and project 700k cost |
-| 2 | `02_lightgbm_700k.ipynb` | CPU High-RAM | Fit default and tuned LightGBM at 700k |
-| 3 | `03_realmlp_700k.ipynb` | A100 with High-RAM | Fit RealMLP at 700k |
-| 4 | `04_tabpfn35_700k.ipynb` | A100 40 GB or better with High-RAM | Run the pilot-gated full TabPFN experiment |
-| 5 | `05_compare.ipynb` | CPU runtime | Verify artifacts, bootstrap differences, and create the review bundle |
+| 0 | [00_prepare_data.ipynb](https://colab.research.google.com/github/selimsidan/tfm-credit-benchmark/blob/main/notebooks/00_prepare_data.ipynb) | CPU High-RAM | Download, clean, cache, split, and check leakage |
+| 1 | [01_pilot.ipynb](https://colab.research.google.com/github/selimsidan/tfm-credit-benchmark/blob/main/notebooks/01_pilot.ipynb) | A100 40 GB with High-RAM | Run 50k, 100k, and 200k pilots and project 700k cost |
+| 2 | [02_lightgbm_700k.ipynb](https://colab.research.google.com/github/selimsidan/tfm-credit-benchmark/blob/main/notebooks/02_lightgbm_700k.ipynb) | CPU High-RAM | Fit default and tuned LightGBM at 700k |
+| 3 | [03_realmlp_700k.ipynb](https://colab.research.google.com/github/selimsidan/tfm-credit-benchmark/blob/main/notebooks/03_realmlp_700k.ipynb) | A100 with High-RAM | Fit RealMLP at 700k |
+| 4 | [04_tabpfn35_700k.ipynb](https://colab.research.google.com/github/selimsidan/tfm-credit-benchmark/blob/main/notebooks/04_tabpfn35_700k.ipynb) | A100 40 GB or better with High-RAM | Run the pilot-gated full TabPFN experiment |
+| 5 | [05_compare.ipynb](https://colab.research.google.com/github/selimsidan/tfm-credit-benchmark/blob/main/notebooks/05_compare.ipynb) | CPU runtime | Verify artifacts, bootstrap differences, and create the review bundle |
 
 Steps 2 and 3 can run after step 0. Step 4 requires a PASS from step 1 unless
 `IGNORE_PILOT_GATE=True` is set explicitly. Step 5 can be rerun at any time and
