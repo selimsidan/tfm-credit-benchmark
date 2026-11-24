@@ -1,22 +1,21 @@
-# Tabular Foundation Models for Credit Default at 700k Scale
+# Tabular Foundation Models for Credit Default at 75k and 700k Scale
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-29%20passed-brightgreen.svg)](#local-development)
+[![Tests](https://img.shields.io/badge/tests-33%20passed-brightgreen.svg)](#local-development)
 [![License: MIT](https://img.shields.io/badge/code%20license-MIT-yellow.svg)](LICENSE)
 
 `tfm-credit-benchmark` is a reproducible academic benchmark of TabPFN-3.5,
-tuned LightGBM, and RealMLP on a real binary credit-default task. The central
-experiment tests whether a tabular foundation model remains competitive with a
-strong tuned gradient-boosting baseline when every model receives the same
-training rows and the TabPFN context grows to 700,000 examples.
+tuned LightGBM, and RealMLP on a real binary credit-default task. It provides a
+resource-conscious 75,000-row comparison and a separate 700,000-row scale-up.
+Every model within an experiment receives the same signed rows.
 
-The workflow is designed for Google Colab and Google Drive. It starts with a
-low-cost pilot, estimates the likely runtime and memory requirements of the
-full TabPFN run, and blocks that run automatically unless the pilot passes.
+The workflow is designed for Google Colab and Google Drive. The recommended
+starting point is the 75k trial on CPU plus L4 or T4. The full workflow retains
+the original pilot gate and A100-class hardware checks for the 700k TabPFN run.
 
-> Project status: implementation is complete, but benchmark results have not
-> yet been generated. This README will be extended with final tables and plots
-> after the signed Colab runs finish.
+> Project status: both experiment profiles are implemented, but benchmark
+> results have not yet been generated. This README will be extended with final
+> tables and plots after the signed Colab runs finish.
 
 ## Research question
 
@@ -31,6 +30,12 @@ The primary test metrics are ROC-AUC, PR-AUC, log loss, and Brier score.
 Runtime, throughput, peak host RAM, and peak GPU memory are reported separately
 so predictive quality is not hidden inside a composite efficiency score.
 
+The first-stage experiment asks the same question at 75,000 training rows. It
+uses 10,000 validation rows and 20,000 locked test rows sampled only from their
+corresponding signed full-benchmark partitions. It is intended to validate the
+complete comparison and measure attainable performance before expensive 700k
+runs are attempted.
+
 ## Scientific contract
 
 The benchmark enforces the following invariants in code and tests:
@@ -44,6 +49,9 @@ The benchmark enforces the following invariants in code and tests:
 - TabPFN training context is never silently reduced after an OOM.
 - The 700k TabPFN run requires a passing pilot tied to the same split manifest.
 - Every result carries dataset, split, feature, code, library, and hardware provenance.
+- The 75k trial has its own signed manifest, feature schema, artifacts, and review folder.
+- Trial rows remain inside the source train, validation, and test partitions respectively.
+- Switching experiment size never requires overwriting either profile.
 
 ## Dataset and target
 
@@ -91,9 +99,9 @@ parameters are refitted once before the locked test prediction.
 
 ### RealMLP
 
-`pytabkit`'s `RealMLP_TD_Classifier` runs once at 700k on GPU. The signed
-100,000-row validation set is supplied explicitly for early stopping and
-selection. No test metric influences fitting.
+`pytabkit`'s `RealMLP_TD_Classifier` runs once per selected profile on GPU. The
+signed validation set is supplied explicitly for early stopping and selection.
+No test metric influences fitting.
 
 ### TabPFN-3.5
 
@@ -102,13 +110,37 @@ estimators, cached fitting, memory-saving mode, and the complete training
 context. Test queries begin in chunks of 512. A CUDA OOM halves only the query
 chunk down to 128 and never changes the fitted context.
 
+For the 75k trial, the notebook exposes `TABPFN_FIT_MODE`. Its default `auto`
+selects `fit_with_cache` on GPUs with at least 20 GiB of VRAM and `low_memory`
+below that threshold. The resolved mode is saved in `run_details.json`. Both
+modes preserve all 75,000 context rows; they trade speed against memory rather
+than changing the statistical experiment.
+
 TabPFN-3.5 weights are governed by the
 [TabPFN-3.5 Non-Commercial License](https://huggingface.co/Prior-Labs/tabpfn_3_5/blob/main/LICENSE).
 They are intended for non-commercial research, testing, and evaluation. Accept
 the license through Prior Labs and provide your token only through a Colab
 secret named `TABPFN_TOKEN`.
 
-## Staged workflow
+## Recommended 75k workflow
+
+Run these notebooks now, in order:
+
+| Step | Notebook | Recommended runtime | Purpose |
+|---:|---|---|---|
+| 6 | [06_prepare_75k_trial.ipynb](https://colab.research.google.com/github/selimsidan/tfm-credit-benchmark/blob/main/notebooks/06_prepare_75k_trial.ipynb) | CPU | Derive and sign the 75k/10k/20k trial from the prepared full cohort |
+| 7 | [07_lightgbm_75k.ipynb](https://colab.research.google.com/github/selimsidan/tfm-credit-benchmark/blob/main/notebooks/07_lightgbm_75k.ipynb) | CPU | Fit default and tuned LightGBM |
+| 8 | [08_realmlp_75k.ipynb](https://colab.research.google.com/github/selimsidan/tfm-credit-benchmark/blob/main/notebooks/08_realmlp_75k.ipynb) | L4 preferred; T4 supported | Fit RealMLP |
+| 9 | [09_tabpfn35_75k.ipynb](https://colab.research.google.com/github/selimsidan/tfm-credit-benchmark/blob/main/notebooks/09_tabpfn35_75k.ipynb) | L4 preferred; T4 low-memory attempt | Fit and score full-context TabPFN-3.5 |
+| 10 | [10_compare_75k.ipynb](https://colab.research.google.com/github/selimsidan/tfm-credit-benchmark/blob/main/notebooks/10_compare_75k.ipynb) | CPU | Verify, compare, bootstrap, plot, and bundle results |
+
+`06_prepare_75k_trial.ipynb` expects the original preparation notebook to have
+completed successfully. It reuses the 900k cached cohort and does not download
+the dataset again. Steps 7 through 9 save independently and can be resumed.
+Step 10 reports `WARN` until every expected run is complete and `PASS` after all
+four result packages verify.
+
+## Full 700k workflow
 
 Run the notebooks in this order:
 
@@ -124,6 +156,13 @@ Run the notebooks in this order:
 Steps 2 and 3 can run after step 0. Step 4 requires a PASS from step 1 unless
 `IGNORE_PILOT_GATE=True` is set explicitly. Step 5 can be rerun at any time and
 will report missing, partial, incompatible, or completed runs.
+
+### Switching back to 700k
+
+Nothing needs to be reverted. Open the original notebooks `00` through `05`
+and keep `EXPERIMENT_NAME='lending_club_900k'`. The 75k notebooks use
+`TRIAL_EXPERIMENT_NAME='lending_club_75k_trial'`, so their manifests, Optuna
+study, predictions, metrics, and reports live in a different Drive directory.
 
 ## Colab setup
 
@@ -142,8 +181,28 @@ The default Drive root is:
 /content/drive/MyDrive/tfm_credit_benchmark/lending_club_900k/
 ```
 
-Change `DRIVE_OUTPUT_DIR` or `EXPERIMENT_NAME` in every notebook if a different
-location is desired. Keep those values identical across all six notebooks.
+Change `DRIVE_OUTPUT_DIR` if a different location is desired. Keep the source
+and trial experiment names identical across notebooks within the selected
+workflow.
+
+## GPU guidance for the 75k trial
+
+An A100 is not a requirement for the 75k profile.
+
+- **L4, 24 GiB:** recommended starting point. The notebook selects cached
+  fitting for speed while offloading the cache from the GPU and enabling
+  TabPFN memory saving.
+- **T4, 16 GiB:** allowed and expected to use `low_memory`. It can be much
+  slower, and success is not guaranteed because Colab host RAM and the exact
+  assigned runtime also matter. Enable High-RAM when available.
+- **A100, 40 GiB or more:** fastest and gives the most headroom, but is not
+  blocked or required for this trial.
+
+RealMLP should be attempted on L4 or T4. LightGBM and both preparation and
+comparison notebooks do not need a GPU. If TabPFN fails while building its
+cache on an L4, set `TABPFN_FIT_MODE='low_memory'`, set `FORCE_RERUN=True`, and
+rerun notebook 09. The code never responds to OOM by silently dropping training
+rows.
 
 ## Pilot report and cost gate
 
@@ -174,6 +233,15 @@ lending_club_900k/
   realmlp/n700000/           RealMLP run package
   tabpfn35/n<size>/          TabPFN run package
   performance_review/        tables, figures, checks, and review bundle
+
+lending_club_75k_trial/
+  shared/                    child manifest, row IDs, 75k feature schema
+  studies/                   separate resumable 75k Optuna study
+  lgbm_default/n75000/       default LightGBM run package
+  lgbm_tuned/n75000/         tuned LightGBM run package
+  realmlp/n75000/            RealMLP run package
+  tabpfn35/n75000/           TabPFN run package
+  performance_review/        75k tables, figures, intervals, and review bundle
 ```
 
 Every completed run folder includes:
@@ -205,6 +273,7 @@ committed to GitHub.
 ## Resume and rerun behavior
 
 - Preparation reuses the signed cohort and split when checksums match.
+- Trial preparation reuses the source cohort but signs its own child rows and schema.
 - A missing or corrupt cohort cache is rebuilt from the pinned dataset revision.
 - Optuna studies resume from their Drive SQLite database.
 - Completed method-size folders are skipped by default.
@@ -232,6 +301,10 @@ python -m tfmbench.run \
   --output-root /path/to/output
 ```
 
+The 75k workflow is intentionally notebook-facing. Its public Python entry
+points are `prepare_trial`, `run_trial_method`, and
+`build_trial_performance_review` in `tfmbench.trial`.
+
 The tests cover cleaning, target mapping, date parsing, deterministic splits,
 nested subsets, manifest tamper detection, leakage checks, metrics, bootstrap
 intervals, pilot projections, gate failures, OOM retries, notebook syntax, row
@@ -241,6 +314,7 @@ limits, and forbidden characters.
 
 - The cohort represents completed accepted loans, not all applicants or current production decisions.
 - Random cohort sampling is stratified with seed 42.
+- Trial partition sampling is stratified with seed 42 and tied to the source manifest hash.
 - The saved dataset revision and SHA256 identify the exact source bytes.
 - The split manifest hashes every row-ID array and the feature schema.
 - Test predictions allow comparison tables to be recomputed without rerunning inference.

@@ -77,8 +77,13 @@ def predict_with_chunk_retries(
     )
 
 
-def fit_model(X_train, y_train) -> TabPFNFit:
+def fit_model(
+    X_train, y_train, *, fit_mode: str = "fit_with_cache"
+) -> TabPFNFit:
     """Fit TabPFN-3.5 on every supplied training row."""
+    allowed_modes = {"low_memory", "fit_preprocessors", "fit_with_cache"}
+    if fit_mode not in allowed_modes:
+        raise ValueError(f"fit_mode must be one of {sorted(allowed_modes)}")
     if not os.environ.get("TABPFN_TOKEN"):
         raise RuntimeError(
             "Missing TABPFN_TOKEN. Accept the TabPFN-3.5 model license and add "
@@ -91,7 +96,7 @@ def fit_model(X_train, y_train) -> TabPFNFit:
         ModelVersion.V3_5,
         n_estimators=8,
         device="cuda",
-        fit_mode="fit_with_cache",
+        fit_mode=fit_mode,
         memory_saving_mode=True,
         keep_cache_on_device=False,
         random_state=SEED,
@@ -119,7 +124,7 @@ def fit_model(X_train, y_train) -> TabPFNFit:
             "model_paths": model_paths,
             "resolved_inference_config": inference_config,
             "n_estimators": 8,
-            "fit_mode": "fit_with_cache",
+            "fit_mode": fit_mode,
             "memory_saving_mode": True,
             "keep_cache_on_device": False,
             "random_state": SEED,

@@ -214,6 +214,7 @@ def _save_tabpfn_run(
     force_rerun: bool,
     ignore_pilot_gate: bool,
     predict_validation: bool,
+    fit_mode: str = "fit_with_cache",
 ) -> Path:
     from .models import tabpfn35
 
@@ -228,7 +229,7 @@ def _save_tabpfn_run(
         if pilot_report:
             print("Pilot projection:", pilot_report.get("projections", {}))
     with ResourceMonitor() as monitor:
-        fit = tabpfn35.fit_model(data.X_train, data.y_train)
+        fit = tabpfn35.fit_model(data.X_train, data.y_train, fit_mode=fit_mode)
         validation_details: dict[str, Any] = {"validation_predictions_enabled": False}
         if predict_validation:
             _, validation_chunk, validation_retries = tabpfn35.predict_with_chunk_retries(

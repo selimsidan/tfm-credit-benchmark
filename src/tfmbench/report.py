@@ -29,6 +29,14 @@ class PerformanceReview:
     inventory: pd.DataFrame
 
 
+def _frame_markdown(frame: pd.DataFrame) -> str:
+    """Render a frame for reports, with a dependency-free fallback."""
+    try:
+        return frame.to_markdown(index=False)
+    except ImportError:
+        return "```text\n" + frame.to_string(index=False) + "\n```"
+
+
 def _expected_runs() -> list[tuple[str, int]]:
     sizes = [*PILOT_SIZES, 700_000]
     return [
@@ -69,8 +77,15 @@ def _inventory_run(
     if actual_test_hash != expected_test_hash:
         row.update(status="incompatible", reason="test row identifier hash differs")
         return row, metrics, resources
-    if len(predictions) != 100_000 or predictions["y_true"].nunique() != 2:
-        row.update(status="incompatible", reason="test predictions are not the signed 100,000 binary rows")
+    expected_test_rows = int(manifest["splits"]["test"]["rows"])
+    if len(predictions) != expected_test_rows or predictions["y_true"].nunique() != 2:
+        row.update(
+            status="incompatible",
+            reason=(
+                "test predictions are not the signed "
+                f"{expected_test_rows:,} binary rows"
+            ),
+        )
         return row, metrics, resources
     checksums_path = run_dir / "artifact_checksums.json"
     if checksums_path.is_file():
@@ -195,10 +210,10 @@ def _comparison_markdown(
     if metrics.empty:
         lines.append("No compatible completed runs were found.")
     else:
-        lines.append(metrics.to_markdown(index=False))
+        lines.append(_frame_markdown(metrics))
     lines.extend(["", "## Paired 700k comparisons", ""])
-    lines.append(bootstrap.to_markdown(index=False) if not bootstrap.empty else "The required 700k pairs are not complete yet.")
-    lines.extend(["", "## Run inventory", "", inventory.to_markdown(index=False), "", "## Figures", ""])
+    lines.append(_frame_markdown(bootstrap) if not bootstrap.empty else "The required 700k pairs are not complete yet.")
+    lines.extend(["", "## Run inventory", "", _frame_markdown(inventory), "", "## Figures", ""])
     lines.extend(
         [
             "- `figures/roc_curves_700k.png`",
@@ -243,6 +258,32 @@ def build_performance_review(
     inventory_frame = pd.DataFrame(inventory_rows)
     metrics_frame = pd.DataFrame(metric_rows)
     resources_frame = pd.DataFrame(resource_rows)
+    if metrics_frame.empty:
+        metrics_frame = pd.DataFrame(
+            columns=[
+                "method",
+                "train_size",
+                "roc_auc",
+                "pr_auc",
+                "log_loss",
+                "brier_score",
+                "test_rows",
+                "manifest_hash",
+            ]
+        )
+    if resources_frame.empty:
+        resources_frame = pd.DataFrame(
+            columns=[
+                "method",
+                "train_size",
+                "fit_seconds",
+                "tuning_seconds",
+                "test_predict_seconds",
+                "test_rows_per_second",
+                "peak_host_ram_bytes",
+                "peak_gpu_memory_bytes",
+            ]
+        )
     core = {("lgbm_tuned", 700_000), ("realmlp", 700_000), ("tabpfn35", 700_000)}
     complete = {
         (row.method, int(row.train_size))
@@ -287,6 +328,18 @@ def build_performance_review(
                 bootstrap_rows.append({"comparison": f"tabpfn35_minus_{baseline}", **row})
         _plot_700k_curves(config.experiment_root, figure_dir, {method for method, _ in core})
     bootstrap_frame = pd.DataFrame(bootstrap_rows)
+    if bootstrap_frame.empty:
+        bootstrap_frame = pd.DataFrame(
+            columns=[
+                "comparison",
+                "metric",
+                "difference",
+                "ci95_low",
+                "ci95_high",
+                "resamples",
+                "seed",
+            ]
+        )
     atomic_csv(review_dir / "paired_bootstrap.csv", bootstrap_frame)
     if not metrics_frame.empty and not resources_frame.empty:
         _plot_learning_and_time(metrics_frame, resources_frame, review_dir, config.experiment_root)
@@ -320,5 +373,314 @@ def build_performance_review(
                 bundle.write(path, path.relative_to(review_dir))
     bundle_path.with_suffix(".zip.tmp").replace(bundle_path)
     print(f"Performance review status: {status}")
+    print(f"Review folder: {review_dir}")
+    return PerformanceReview(status, review_dir, comparison_path, inventory_frame)
+
+
+def _plot_fixed_size_curves(
+    experiment_root: Path,
+    figure_dir: Path,
+    size: int,
+    available: set[str],
+) -> list[str]:
+    """Plot common-test curves for a fixed-size comparison."""
+    import matplotlib.pyplot as plt
+
+    colors = {
+        "lgbm_default": "#718096",
+        "lgbm_tuned": "#2b6cb0",
+        "realmlp": "#38a169",
+        "tabpfn35": "#c53030",
+    }
+    figures = [
+        ("roc", "False-positive rate", "True-positive rate"),
+        ("precision_recall", "Recall", "Precision"),
+        ("calibration", "Mean predicted probability", "Observed frequency"),
+    ]
+    handles: dict[str, tuple[Any, Any]] = {}
+    prevalence = None
+    for kind, xlabel, ylabel in figures:
+        fig, ax = plt.subplots(figsize=(7, 6))
+        handles[kind] = (fig, ax)
+        ax.set(
+            xlabel=xlabel,
+            ylabel=ylabel,
+            title=f"{kind.replace('_', ' ').title()} at {size:,} training rows",
+        )
+    for method in METHODS:
+        if method not in available:
+            continue
+        frame = _prediction_frame(experiment_root, method, size)
+        y = frame["y_true"].to_numpy()
+        probability = frame["probability"].to_numpy()
+        prevalence = float(y.mean())
+        fpr, tpr, _ = roc_curve(y, probability)
+        precision, recall, _ = precision_recall_curve(y, probability)
+        observed, predicted = calibration_curve(
+            y, probability, n_bins=15, strategy="quantile"
+        )
+        handles["roc"][1].plot(fpr, tpr, label=method, color=colors[method])
+        handles["precision_recall"][1].plot(
+            recall, precision, label=method, color=colors[method]
+        )
+        handles["calibration"][1].plot(
+            predicted, observed, marker="o", label=method, color=colors[method]
+        )
+    handles["roc"][1].plot([0, 1], [0, 1], "k--", linewidth=1)
+    handles["calibration"][1].plot([0, 1], [0, 1], "k--", linewidth=1)
+    if prevalence is not None:
+        handles["precision_recall"][1].axhline(
+            prevalence, color="black", linestyle="--", linewidth=1
+        )
+    names: list[str] = []
+    for kind, _, _ in figures:
+        fig, ax = handles[kind]
+        ax.grid(alpha=0.2)
+        ax.legend()
+        fig.tight_layout()
+        name = f"{kind}_curves_{size}.png"
+        fig.savefig(figure_dir / name, dpi=180)
+        plt.close(fig)
+        names.append(name)
+    return names
+
+
+def _fixed_size_markdown(
+    status: str,
+    size: int,
+    metrics: pd.DataFrame,
+    resources: pd.DataFrame,
+    bootstrap: pd.DataFrame,
+    inventory: pd.DataFrame,
+    figure_names: list[str],
+) -> str:
+    lines = [
+        f"# Credit benchmark review at {size:,} training rows",
+        "",
+        f"Review status: **{status}**",
+        "",
+        "## Predictive metrics",
+        "",
+        _frame_markdown(metrics) if not metrics.empty else "No complete runs yet.",
+        "",
+        "## Resource measurements",
+        "",
+        _frame_markdown(resources) if not resources.empty else "No complete runs yet.",
+        "",
+        "## Paired uncertainty",
+        "",
+        (
+            _frame_markdown(bootstrap)
+            if not bootstrap.empty
+            else "The tuned LightGBM, RealMLP, and TabPFN runs must all complete first."
+        ),
+        "",
+        "## Run inventory",
+        "",
+        _frame_markdown(inventory),
+        "",
+        "## Figures",
+        "",
+    ]
+    lines.extend(f"- `figures/{name}`" for name in figure_names)
+    lines.extend(
+        [
+            "",
+            "ROC-AUC and PR-AUC are higher-is-better. Log loss and Brier score are lower-is-better. Resource use is reported separately.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def build_fixed_size_performance_review(
+    experiment_root: str | Path,
+    manifest: dict[str, Any],
+    *,
+    train_size: int,
+    bootstrap_resamples: int = 2_000,
+) -> PerformanceReview:
+    """Build a signed comparison bundle for all methods at one training size."""
+    experiment_root = Path(experiment_root).expanduser().resolve()
+    review_dir = experiment_root / "performance_review"
+    figure_dir = review_dir / "figures"
+    figure_dir.mkdir(parents=True, exist_ok=True)
+    expected = [(method, train_size) for method in METHODS]
+    inventory_rows: list[dict[str, Any]] = []
+    metric_rows: list[dict[str, Any]] = []
+    resource_rows: list[dict[str, Any]] = []
+    for method, size in expected:
+        inventory, metrics, resources = _inventory_run(
+            experiment_root, method, size, manifest
+        )
+        inventory_rows.append(inventory)
+        if inventory["status"] == "complete" and metrics is not None and resources is not None:
+            metric_rows.append(metrics)
+            resource_rows.append({"method": method, "train_size": size, **resources})
+    inventory_frame = pd.DataFrame(inventory_rows)
+    metrics_frame = pd.DataFrame(metric_rows)
+    resources_frame = pd.DataFrame(resource_rows)
+    if metrics_frame.empty:
+        metrics_frame = pd.DataFrame(
+            columns=[
+                "method",
+                "train_size",
+                "roc_auc",
+                "pr_auc",
+                "log_loss",
+                "brier_score",
+                "test_rows",
+                "manifest_hash",
+            ]
+        )
+    if resources_frame.empty:
+        resources_frame = pd.DataFrame(
+            columns=[
+                "method",
+                "train_size",
+                "fit_seconds",
+                "tuning_seconds",
+                "test_predict_seconds",
+                "test_rows_per_second",
+                "peak_host_ram_bytes",
+                "peak_gpu_memory_bytes",
+            ]
+        )
+    complete = {
+        (row.method, int(row.train_size))
+        for row in inventory_frame.itertuples()
+        if row.status == "complete"
+    }
+    incompatible = inventory_frame[
+        inventory_frame["status"].isin(["incompatible", "failed"])
+    ]
+    status = (
+        "FAIL"
+        if not incompatible.empty
+        else "PASS"
+        if set(expected) <= complete
+        else "WARN"
+    )
+    atomic_csv(review_dir / "run_inventory.csv", inventory_frame)
+    atomic_csv(review_dir / "all_metrics.csv", metrics_frame)
+    atomic_csv(review_dir / "resource_summary.csv", resources_frame)
+    if not metrics_frame.empty:
+        wide = metrics_frame.pivot(
+            index="method",
+            columns="train_size",
+            values=["roc_auc", "pr_auc", "log_loss", "brier_score"],
+        )
+        wide.columns = [f"{metric}_{size}" for metric, size in wide.columns]
+        atomic_csv(review_dir / f"metrics_{train_size}_wide.csv", wide.reset_index())
+        best_rows = []
+        for metric, ascending in (
+            ("roc_auc", False),
+            ("pr_auc", False),
+            ("log_loss", True),
+            ("brier_score", True),
+        ):
+            best = metrics_frame.sort_values(metric, ascending=ascending).iloc[0]
+            best_rows.append(
+                {
+                    "metric": metric,
+                    "method": best["method"],
+                    "value": best[metric],
+                    "direction": "lower" if ascending else "higher",
+                }
+            )
+        atomic_csv(review_dir / "best_by_metric.csv", pd.DataFrame(best_rows))
+
+    core_methods = {"lgbm_tuned", "realmlp", "tabpfn35"}
+    core = {(method, train_size) for method in core_methods}
+    bootstrap_rows: list[dict[str, Any]] = []
+    if core <= complete:
+        tab = _prediction_frame(experiment_root, "tabpfn35", train_size)
+        for baseline in ("lgbm_tuned", "realmlp"):
+            other = _prediction_frame(experiment_root, baseline, train_size)
+            if not tab[["source_row_id", "y_true"]].equals(
+                other[["source_row_id", "y_true"]]
+            ):
+                raise ValueError(f"Paired comparison rows do not align for {baseline}")
+            for metric in ("roc_auc", "log_loss"):
+                row = paired_bootstrap_difference(
+                    tab["y_true"].to_numpy(),
+                    tab["probability"].to_numpy(),
+                    other["probability"].to_numpy(),
+                    metric,
+                    n_resamples=bootstrap_resamples,
+                    seed=0,
+                )
+                bootstrap_rows.append(
+                    {"comparison": f"tabpfn35_minus_{baseline}", **row}
+                )
+    bootstrap_frame = pd.DataFrame(bootstrap_rows)
+    if bootstrap_frame.empty:
+        bootstrap_frame = pd.DataFrame(
+            columns=[
+                "comparison",
+                "metric",
+                "difference",
+                "ci95_low",
+                "ci95_high",
+                "resamples",
+                "seed",
+            ]
+        )
+    atomic_csv(review_dir / "paired_bootstrap.csv", bootstrap_frame)
+    available_methods = {
+        method for method in METHODS if (method, train_size) in complete
+    }
+    figure_names = (
+        _plot_fixed_size_curves(
+            experiment_root, figure_dir, train_size, available_methods
+        )
+        if available_methods
+        else []
+    )
+    review_status = {
+        "schema_version": 1,
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+        "manifest_hash": manifest["manifest_hash"],
+        "train_size": int(train_size),
+        "completed_runs": len(complete),
+        "expected_runs": len(expected),
+        "core_complete": core <= complete,
+        "issues": incompatible.to_dict(orient="records"),
+    }
+    atomic_json(review_dir / "review_status.json", review_status)
+    atomic_json(
+        review_dir / "comparison.json",
+        {
+            **review_status,
+            "metrics_file": "all_metrics.csv",
+            "resources_file": "resource_summary.csv",
+            "bootstrap_file": "paired_bootstrap.csv",
+            "figures": figure_names,
+        },
+    )
+    comparison_path = review_dir / "comparison.md"
+    comparison_path.write_text(
+        _fixed_size_markdown(
+            status,
+            train_size,
+            metrics_frame,
+            resources_frame,
+            bootstrap_frame,
+            inventory_frame,
+            figure_names,
+        )
+    )
+    bundle_path = review_dir / "review_bundle.zip"
+    temporary_bundle = bundle_path.with_suffix(".zip.tmp")
+    with zipfile.ZipFile(temporary_bundle, "w", zipfile.ZIP_DEFLATED) as bundle:
+        for path in review_dir.rglob("*"):
+            if path.is_file() and path.name not in {
+                "review_bundle.zip",
+                "review_bundle.zip.tmp",
+            }:
+                bundle.write(path, path.relative_to(review_dir))
+    temporary_bundle.replace(bundle_path)
+    print(f"Fixed-size performance review status: {status}")
     print(f"Review folder: {review_dir}")
     return PerformanceReview(status, review_dir, comparison_path, inventory_frame)

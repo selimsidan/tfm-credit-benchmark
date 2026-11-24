@@ -13,6 +13,13 @@ VALIDATION_ROWS = 100_000
 TEST_ROWS = 100_000
 PILOT_SIZES = (50_000, 100_000, 200_000)
 
+# The exploratory profile is derived from the immutable 900k cohort. It is a
+# separate signed experiment, so none of these values alter the full benchmark.
+TRIAL_TRAIN_ROWS = 75_000
+TRIAL_VALIDATION_ROWS = 10_000
+TRIAL_TEST_ROWS = 20_000
+TRIAL_EXPERIMENT_NAME = "lending_club_75k_trial"
+
 DATASET_REPO_ID = "codesignal/lending-club-loan-accepted"
 DATASET_FILENAME = "accepted_2007_to_2018Q4.csv"
 TARGET_COLUMN = "target"
