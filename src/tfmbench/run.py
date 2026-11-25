@@ -39,7 +39,11 @@ def _repo_commit() -> str | None:
 
 
 def _prepare_output(
-    output_dir: Path, force_rerun: bool, expected_manifest_hash: str
+    output_dir: Path,
+    force_rerun: bool,
+    expected_manifest_hash: str,
+    *,
+    reuse_empty: bool = False,
 ) -> bool:
     if is_complete_run(output_dir) and not force_rerun:
         completed = json.loads((output_dir / "metrics.json").read_text())
@@ -51,6 +55,9 @@ def _prepare_output(
         print(f"Skipping completed run: {output_dir}")
         return False
     if output_dir.exists():
+        if reuse_empty and output_dir.is_dir() and not any(output_dir.iterdir()):
+            print(f"Retrying empty run folder: {output_dir}")
+            return True
         if not force_rerun:
             raise RuntimeError(
                 f"Partial run artifacts exist at {output_dir}. Inspect them, then set "
@@ -153,7 +160,9 @@ def _save_realmlp_run(
     from .models import realmlp
 
     output_dir = run_output_dir(config.experiment_root, "realmlp", train_size)
-    if not _prepare_output(output_dir, force_rerun, data.manifest["manifest_hash"]):
+    if not _prepare_output(
+        output_dir, force_rerun, data.manifest["manifest_hash"], reuse_empty=True
+    ):
         return output_dir
     require_cuda("RealMLP")
     with ResourceMonitor() as monitor:

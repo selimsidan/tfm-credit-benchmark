@@ -82,6 +82,19 @@ def test_realmlp_prepares_nullable_numbers_and_preserves_categories(monkeypatch)
     assert pd.isna(X_train.loc[2, "term"])
 
 
+def test_realmlp_retry_can_reuse_empty_folder_but_preserves_partial_artifacts(tmp_path):
+    from tfmbench.run import _prepare_output
+
+    output_dir = tmp_path / "run"
+    output_dir.mkdir()
+    assert _prepare_output(output_dir, False, "manifest", reuse_empty=True)
+    partial = output_dir / "resources.json"
+    partial.write_text("{}")
+    with pytest.raises(RuntimeError, match="Partial run artifacts"):
+        _prepare_output(output_dir, False, "manifest", reuse_empty=True)
+    assert partial.read_text() == "{}"
+
+
 @pytest.mark.skipif(importlib.util.find_spec("pytabkit") is None, reason="pytabkit not installed")
 def test_realmlp_fit_predict_interface_when_cuda_available():
     torch = pytest.importorskip("torch")
