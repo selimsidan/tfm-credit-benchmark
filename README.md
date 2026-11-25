@@ -102,6 +102,9 @@ parameters are refitted once before the locked test prediction.
 `pytabkit`'s `RealMLP_TD_Classifier` runs once per selected profile on GPU. The
 signed validation set is supplied explicitly for early stopping and selection.
 No test metric influences fitting.
+RealMLP fills missing numeric values with medians from the training split,
+using zero for an entirely missing training column. It reuses those values for
+validation and test and passes categorical columns to pytabkit as categories.
 
 ### TabPFN-3.5
 
